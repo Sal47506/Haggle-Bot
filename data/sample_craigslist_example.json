@@ -1,0 +1,36 @@
+[
+  {
+    "agent_info": {
+      "Bottomline": ["None", "None"],
+      "Role": ["buyer", "seller"],
+      "Target": [7.0, 10.0]
+    },
+    "agent_turn": [0, 1, 0, 1, 0, 1],
+    "dialogue_acts": {
+      "intent": ["init-price", "reject", "counter", "counter", "accept", "accept"],
+      "price": [5.0, -1.0, 6.0, 8.0, 7.5, 7.5]
+    },
+    "items": {
+      "Category": ["phone", "phone"],
+      "Description": [
+        "Verizon Car Charger with Dual Output Micro USB and USB-C. Charge two devices simultaneously on the go.",
+        "Verizon Car Charger with Dual Output Micro USB and USB-C. Charge two devices simultaneously on the go."
+      ],
+      "Images": ["phone/6149527852_0.jpg", "phone/6149527852_0.jpg"],
+      "Price": [10.0, 10.0],
+      "Title": [
+        "Verizon Car Charger with Dual Output",
+        "Verizon Car Charger with Dual Output"
+      ]
+    },
+    "utterance": [
+      "Hi! I'm interested in the car charger. Would you take $5 for it?",
+      "That's quite low. The charger is brand new and works perfectly.",
+      "I understand. How about $6? I need it for my commute.",
+      "I could do $8. It's a great deal for a dual-port charger.",
+      "Meet me in the middle at $7.50?",
+      "Deal! $7.50 works for me."
+    ]
+  }
+]
+

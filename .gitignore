@@ -1,0 +1,47 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Java
+*.class
+bin/
+target/
+lib/
+*.jar
+!gson-2.10.1.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/craigslist_bargains/train.json
+data/craigslist_bargains/validation.json
+data/craigslist_bargains/test.json
+data/deal_or_no_dialog/train.json
+data/deal_or_no_dialog/validation.json
+data/deal_or_no_dialog/test.json
+
+# Logs
+*.log
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+

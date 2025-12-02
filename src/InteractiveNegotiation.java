@@ -1,10 +1,14 @@
 import agents.BuyerAgent;
 import java.util.*;
 import java.io.*;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 public class InteractiveNegotiation {
     
     private static BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+    private static Pattern pricePattern = Pattern.compile("\\$\\s*(\\d+(?:\\.\\d{1,2})?)|" +
+                                                          "(\\d+(?:\\.\\d{1,2})?)\\s*(?:dollars?|bucks?|usd)");
     
     public static void main(String[] args) {
         try {
@@ -32,6 +36,13 @@ public class InteractiveNegotiation {
             System.out.println("----------------------------------------\n");
             
             BuyerAgent buyer = new BuyerAgent(datasetPath, buyerReservation, buyerTarget);
+            buyer.setItemContext(itemName);
+            
+            System.out.println("Q-Learning enabled:");
+            System.out.println("  Exploration rate: " + buyer.getEpsilon());
+            System.out.println("  Agent will learn from this negotiation");
+            System.out.println("  Item context: " + itemName);
+            System.out.println();
             
             String buyerMessage = buyer.makeInitialOffer();
             System.out.println("Buyer: " + buyerMessage);
@@ -55,18 +66,28 @@ public class InteractiveNegotiation {
                     break;
                 }
                 
-                System.out.print("Your price: $");
-                String priceInput = reader.readLine().trim();
+                double inferredPrice = inferPriceFromMessage(sellerMessage);
+                boolean isRejecting = isRejectingMessage(sellerMessage);
                 
-                if (priceInput.toLowerCase().equals("quit") || priceInput.toLowerCase().equals("exit")) {
-                    System.out.println("\nNegotiation ended by seller.");
-                    break;
-                }
-                
-                try {
-                    currentSellerPrice = Double.parseDouble(priceInput);
-                } catch (NumberFormatException e) {
-                    System.out.println("Invalid price, using previous price: $" + String.format("%.2f", currentSellerPrice));
+                if (inferredPrice > 0) {
+                    currentSellerPrice = inferredPrice;
+                    System.out.println("  [Inferred price: $" + String.format("%.2f", currentSellerPrice) + "]");
+                } else if (!isRejecting) {
+                    System.out.print("  Your price: $");
+                    String priceInput = reader.readLine().trim();
+                    
+                    if (priceInput.toLowerCase().equals("quit") || priceInput.toLowerCase().equals("exit")) {
+                        System.out.println("\nNegotiation ended by seller.");
+                        break;
+                    }
+                    
+                    try {
+                        currentSellerPrice = Double.parseDouble(priceInput);
+                    } catch (NumberFormatException e) {
+                        System.out.println("  Invalid price, keeping previous: $" + String.format("%.2f", currentSellerPrice));
+                    }
+                } else {
+                    System.out.println("  [Keeping price: $" + String.format("%.2f", currentSellerPrice) + "]");
                 }
                 
                 System.out.println();
@@ -78,7 +99,8 @@ public class InteractiveNegotiation {
                 
                 double priceGap = Math.abs(buyer.getCurrentOffer() - currentSellerPrice);
                 System.out.println("Round: " + buyer.getState().getRound() + 
-                                 " | Price gap: $" + String.format("%.2f", priceGap));
+                                 " | Price gap: $" + String.format("%.2f", priceGap) +
+                                 " | Exploration: " + String.format("%.1f%%", buyer.getEpsilon() * 100));
                 
                 if (buyer.getState().getOpponentLastOffer() <= buyer.getReservationPrice() && 
                     buyer.getState().getOpponentLastOffer() > 0) {
@@ -121,10 +143,47 @@ public class InteractiveNegotiation {
                 System.out.println("  Round " + (i+1) + ": $" + String.format("%.2f", history.get(i)));
             }
             
+            buyer.saveQTable("q_table.txt");
+            
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+    
+    private static double inferPriceFromMessage(String message) {
+        Matcher matcher = pricePattern.matcher(message.toLowerCase());
+        if (matcher.find()) {
+            try {
+                String priceStr = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+                return Double.parseDouble(priceStr);
+            } catch (NumberFormatException e) {
+                return 0.0;
+            }
+        }
+        return 0.0;
+    }
+    
+    private static boolean isRejectingMessage(String message) {
+        String lower = message.toLowerCase();
+        
+        String[] rejectKeywords = {
+            "no", "nope", "can't", "cannot", "won't", "wouldn't",
+            "too low", "too high", "impossible", "refuse", 
+            "not accepting", "not interested", "pass"
+        };
+        
+        for (String keyword : rejectKeywords) {
+            if (lower.contains(keyword)) {
+                return true;
+            }
+        }
+        
+        if (lower.contains("deal") && (lower.contains("no") || lower.contains("not"))) {
+            return true;
+        }
+        
+        return false;
     }
 }
 

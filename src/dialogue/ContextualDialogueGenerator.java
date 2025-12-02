@@ -281,7 +281,8 @@ public class ContextualDialogueGenerator {
         
         return result.trim();
     }
-    
+
+   // hopefully i dont have to use this lmao, only used to start the project up for running, ignore this
     private String getFallbackDialogue(String intent, double price) {
         switch (intent) {
             case "OFFER":

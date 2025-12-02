@@ -14,13 +14,19 @@ public class MarkovDialogueGenerator {
     private List<String> conversationHistory;
     private NegotiationState currentState;
     private int order;
+    private String itemContext;
     
     public MarkovDialogueGenerator(String datasetPath, int order) throws Exception {
         this.random = new Random();
         this.pricePattern = Pattern.compile("\\$?\\s*(\\d+(\\.\\d{1,2})?)");
         this.conversationHistory = new ArrayList<>();
         this.order = order;
+        this.itemContext = "";
         buildMarkovModels(datasetPath);
+    }
+    
+    public void setItemContext(String item) {
+        this.itemContext = item != null ? item.toLowerCase() : "";
     }
     
     private void buildMarkovModels(String datasetPath) throws Exception {
@@ -201,10 +207,64 @@ public class MarkovDialogueGenerator {
     private List<String> filterSeedsByContext(List<String> seeds, String intent, double price, String opponentMessage) {
         if (seeds == null || seeds.isEmpty()) return new ArrayList<>();
         
+        List<String> itemFiltered = new ArrayList<>();
+        if (!itemContext.isEmpty()) {
+            String[] specificItems = {
+                "chair", "table", "desk", "sofa", "couch", "bed",
+                "apartment", "room", "house", "condo", "studio", "place",
+                "car", "truck", "van", "vehicle", "auto",
+                "bike", "bicycle", "motorcycle", "scooter",
+                "laptop", "computer", "desktop", "macbook", "pc",
+                "phone", "iphone", "android", "mobile", "cell",
+                "tv", "television", "monitor", "screen",
+                "amp", "amplifier", "speaker", "stereo",
+                "guitar", "piano", "drum", "instrument",
+                "refrigerator", "fridge", "stove", "microwave",
+                "washer", "dryer", "appliance",
+                "camera", "lens", "dslr",
+                "watch", "clock",
+                "scratches", "dent", "crack", "broken",
+                "utilities", "cable", "internet", "wifi",
+                "trip", "hawaii", "vacation", "travel"
+            };
+            
+            for (String seed : seeds) {
+                String lowerSeed = seed.toLowerCase();
+                boolean isGeneric = true;
+                
+                for (String specificItem : specificItems) {
+                    if (lowerSeed.contains(specificItem)) {
+                        if (!itemContext.contains(specificItem)) {
+                            isGeneric = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if (isGeneric) {
+                    itemFiltered.add(seed);
+                }
+            }
+            
+            if (itemFiltered.size() < 50) {
+                for (String seed : seeds) {
+                    if (seed.length() < 80 && !seed.toLowerCase().matches(".*(chair|laptop|phone|car|apartment).*")) {
+                        itemFiltered.add(seed);
+                    }
+                }
+            }
+            
+            if (itemFiltered.isEmpty()) {
+                itemFiltered = seeds;
+            }
+        } else {
+            itemFiltered = seeds;
+        }
+        
         Map<String, Double> scoreCache = new HashMap<>();
         List<String> filtered = new ArrayList<>();
         
-        for (String seed : seeds) {
+        for (String seed : itemFiltered) {
             double relevance = calculateSeedRelevance(seed, intent, price, opponentMessage);
             scoreCache.put(seed, relevance);
             if (relevance > 0.3) {
@@ -213,7 +273,7 @@ public class MarkovDialogueGenerator {
         }
         
         if (filtered.isEmpty()) {
-            return seeds;
+            return itemFiltered;
         }
         
         filtered.sort((a, b) -> {
@@ -330,26 +390,28 @@ public class MarkovDialogueGenerator {
     }
     
     private String getFallbackDialogue(String intent, double price) {
+        String item = !itemContext.isEmpty() ? itemContext : "this";
+        
         switch (intent) {
             case "OFFER":
                 if (currentState != null && currentState.getRound() == 1) {
-                    return "I'm interested in buying this. I can offer $" + String.format("%.2f", price) + ".";
+                    return "I'm interested in " + item + ". I can offer $" + String.format("%.2f", price) + ".";
                 }
-                return "I can offer you $" + String.format("%.2f", price) + ".";
+                return "I can offer you $" + String.format("%.2f", price) + " for " + item + ".";
             case "COUNTER":
-                if (currentState != null && currentState.getRound() > 3) {
-                    return "My final offer is $" + String.format("%.2f", price) + ".";
+                if (currentState != null && currentState.getRound() > 5) {
+                    return "I really can't go higher than $" + String.format("%.2f", price) + ". That's my final offer.";
                 }
                 return "How about $" + String.format("%.2f", price) + "?";
             case "REJECT":
-                if (currentState != null && currentState.getOpponentLastOffer() > currentState.getLastOfferPrice()) {
-                    return "That's too high for me. I can't do $" + String.format("%.2f", price) + ".";
+                if (currentState != null && currentState.getConsecutiveRejects() > 1) {
+                    return "I found " + item + " elsewhere for less. I'll stick with $" + String.format("%.2f", price) + ".";
                 }
-                return "I can't do $" + String.format("%.2f", price) + ", that's too high.";
+                return "That's too high. I can only do $" + String.format("%.2f", price) + ".";
             case "ACCEPT":
                 return "Deal! $" + String.format("%.2f", price) + " works for me.";
             default:
-                return "I'm interested in this item.";
+                return "I'm interested in " + item + ".";
         }
     }
     

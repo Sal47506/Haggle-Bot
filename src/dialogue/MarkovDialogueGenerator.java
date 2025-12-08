@@ -71,6 +71,8 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
         
         for (String utterance : utterances) {
             String normalized = normalizePrice(utterance);
+            normalized = normalizeItem(normalized);
+            normalized = normalizeContext(normalized);
             List<String> tokens = tokenize(normalized);
             
             if (tokens.size() < n) continue;
@@ -114,6 +116,15 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
     
     private String normalizePrice(String utterance) {
         return utterance.replaceAll("\\$?\\s*\\d+(\\.\\d{1,2})?", "<PRICE>");
+    
+    }
+
+    private String normalizeItem(String utterance) {
+        return utterance.replaceAll("\\b<ITEM>\\b", "<ITEM>");
+    }
+
+    private String normalizeContext(String utterance) {
+        return utterance.replaceAll("\\b<CONTEXT>\\b", "<CONTEXT>");
     }
     
     private String normalizeIntent(String intent) {
@@ -171,7 +182,7 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
         int maxAttempts = 5;
         for (int i = 0; i < maxAttempts; i++) {
             String seed = filteredSeeds.get(random.nextInt(Math.min(50, filteredSeeds.size())));
-            String generated = generateFromSeed(null, seed, normalizedIntent, price);
+            String generated = generateFromSeed(seed, normalizedIntent, price);
             
             if (isValidGeneration(generated, price)) {
                 return generated;
@@ -186,7 +197,10 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
             return false;
         }
         
-        if (text.contains("<PRICE>") || text.contains("<price>")) {
+        // Ensure all placeholders have been replaced
+        if (text.contains("<PRICE>") || text.contains("<price>") ||
+            text.contains("<ITEM>") || text.contains("<item>") ||
+            text.contains("<CONTEXT>") || text.contains("<context>")) {
             return false;
         }
         
@@ -283,21 +297,42 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
         return Math.min(score, 1.0);
     }
     
-    private String generateFromSeed(Map<String, List<String>> model, String seedUtterance, String intent, double price) {
-        String directReplacement = replacePrice(seedUtterance, price);
+    private String generateFromSeed(String seedUtterance, String intent, double price) {
+
+        Map<String, List<String>> model = markovModels.get(intent);
+
+        if (model == null) return null;
+
+        List<String> tokens = tokenize(seedUtterance);
         
-        if (!directReplacement.contains("<PRICE>") && directReplacement.length() > 10) {
-            return directReplacement;
-        }
+        if (tokens.size() < order) return null;
+        String generate = replacePlaceholders(seedUtterance, price);
         
-        return directReplacement;
+        return generate;
     }
     
-    private String replacePrice(String utterance, double targetPrice) {
-        java.util.regex.Matcher matcher = pricePattern.matcher(utterance);
-        String priceStr = "$" + String.format("%.2f", targetPrice);
-        String result = matcher.replaceAll(java.util.regex.Matcher.quoteReplacement(priceStr));
+    private String replacePlaceholders(String utterance, double targetPrice) {
+        String result = utterance;
         
+        // Replace price placeholders
+        java.util.regex.Matcher matcher = pricePattern.matcher(result);
+        String priceStr = "$" + String.format("%.2f", targetPrice);
+        result = matcher.replaceAll(java.util.regex.Matcher.quoteReplacement(priceStr));
+        
+        // Replace <ITEM> placeholder with actual item name
+        String itemName = !itemContext.isEmpty() ? itemContext : "this";
+        result = result.replaceAll("\\b<ITEM>\\b", itemName);
+        
+        // Replace <CONTEXT> placeholder with relevant portions from previous seller messages
+        String contextText = extractContextFromHistory();
+        if (!contextText.isEmpty()) {
+            result = result.replaceAll("\\b<CONTEXT>\\b", contextText);
+        } else {
+            // If no context available, remove the placeholder
+            result = result.replaceAll("\\b<CONTEXT>\\b", "");
+        }
+        
+        // If no price was found and utterance suggests an offer, add price
         if (!result.contains("$")) {
             if (utterance.toLowerCase().contains("how about") || utterance.toLowerCase().contains("offer")) {
                 result = result.trim();
@@ -315,6 +350,61 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
         }
         
         return result.trim();
+    }
+    
+    private String extractContextFromHistory() {
+        if (conversationHistory == null || conversationHistory.isEmpty()) {
+            return "";
+        }
+        
+        // Get the most recent seller messages (last 2-3 messages)
+        int numMessages = Math.min(3, conversationHistory.size());
+        List<String> recentMessages = conversationHistory.subList(
+            conversationHistory.size() - numMessages, 
+            conversationHistory.size()
+        );
+        
+        // Extract key phrases/words from recent messages
+        List<String> contextPhrases = new ArrayList<>();
+        Set<String> stopWords = new HashSet<>(Arrays.asList(
+            "the", "and", "for", "can", "will", "this", "that", "with", "from",
+            "you", "your", "i", "my", "me", "we", "our", "it", "is", "are",
+            "was", "were", "be", "been", "have", "has", "had", "do", "does", "did",
+            "a", "an", "to", "of", "in", "on", "at", "by", "about", "but"
+        ));
+        
+        for (String message : recentMessages) {
+            if (message == null || message.trim().isEmpty()) continue;
+            
+            // Remove prices from the message for context extraction
+            String cleanedMessage = message.replaceAll("\\$?\\s*\\d+(\\.\\d{1,2})?", "");
+            
+            // Extract meaningful words and short phrases
+            String[] words = cleanedMessage.split("\\s+");
+            List<String> meaningfulWords = new ArrayList<>();
+            
+            for (String word : words) {
+                word = word.replaceAll("[.,!?;:]", "").toLowerCase().trim();
+                // Skip empty, stop words, and very short words
+                if (word.length() > 3 && !stopWords.contains(word) && !word.isEmpty()) {
+                    meaningfulWords.add(word);
+                }
+            }
+            
+            // Take up to 5 meaningful words from each message
+            if (!meaningfulWords.isEmpty()) {
+                int take = Math.min(5, meaningfulWords.size());
+                contextPhrases.addAll(meaningfulWords.subList(0, take));
+            }
+        }
+        
+        // Return a short context string (up to 10 words)
+        if (!contextPhrases.isEmpty()) {
+            int take = Math.min(10, contextPhrases.size());
+            return String.join(" ", contextPhrases.subList(0, take));
+        }
+        
+        return "";
     }
     
     private String getFallbackDialogue(String intent, double price) {

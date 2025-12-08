@@ -1,12 +1,13 @@
 package agents;
 
+import dialogue.DialogueGenerator;
 import dialogue.MarkovDialogueGenerator;
 import models.NegotiationState;
 import java.util.*;
 
 public class BuyerAgent {
     
-    private MarkovDialogueGenerator dialogueGen;
+    private DialogueGenerator dialogueGen;
     private double reservationPrice;
     private double targetPrice;
     private double currentOffer;
@@ -31,6 +32,17 @@ public class BuyerAgent {
 
     public BuyerAgent(String datasetPath, double reservationPrice, double targetPrice) throws Exception {
         this.dialogueGen = new MarkovDialogueGenerator(datasetPath, 3);
+        this.reservationPrice = reservationPrice;
+        this.targetPrice = targetPrice;
+        this.currentOffer = targetPrice;
+        this.random = new Random();
+        this.offerHistory = new ArrayList<>();
+        this.qTable = new HashMap<>();
+        this.state = new NegotiationState(0, 0.0, reservationPrice, targetPrice, 0.0, offerHistory);
+    }
+
+    public BuyerAgent(DialogueGenerator dialogueGen, double reservationPrice, double targetPrice) {
+        this.dialogueGen = dialogueGen;
         this.reservationPrice = reservationPrice;
         this.targetPrice = targetPrice;
         this.currentOffer = targetPrice;
@@ -175,6 +187,7 @@ public class BuyerAgent {
         }
         
         double offerPrice = decidePrice(intent, sellerPrice, consecutiveRejects);
+        intent = decideIntent(sellerPrice);
         
         currentOffer = offerPrice;
         offerHistory.add(offerPrice);

@@ -4,3 +4,10 @@ echo.
 
 java -cp "bin;lib/*" InteractiveNegotiation
 
+
+
+
+
+
+
+

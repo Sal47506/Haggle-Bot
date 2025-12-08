@@ -5,7 +5,7 @@ import models.NegotiationState;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class MarkovDialogueGenerator {
+public class MarkovDialogueGenerator implements DialogueGenerator {
     
     private Map<String, Map<String, List<String>>> markovModels;
     private Map<String, List<String>> seedUtterances;
@@ -206,87 +206,15 @@ public class MarkovDialogueGenerator {
     
     private List<String> filterSeedsByContext(List<String> seeds, String intent, double price, String opponentMessage) {
         if (seeds == null || seeds.isEmpty()) return new ArrayList<>();
+        List<String> itemsFiltered = new ArrayList<>(); 
         
-        List<String> itemFiltered = new ArrayList<>();
-        if (!itemContext.isEmpty()) {
-            String[] specificItems = {
-                "chair", "table", "desk", "sofa", "couch", "bed",
-                "apartment", "room", "house", "condo", "studio", "place",
-                "car", "truck", "van", "vehicle", "auto",
-                "bike", "bicycle", "motorcycle", "scooter",
-                "laptop", "computer", "desktop", "macbook", "pc",
-                "phone", "iphone", "android", "mobile", "cell",
-                "tv", "television", "monitor", "screen",
-                "amp", "amplifier", "speaker", "stereo",
-                "guitar", "piano", "drum", "instrument",
-                "refrigerator", "fridge", "stove", "microwave",
-                "washer", "dryer", "appliance",
-                "camera", "lens", "dslr",
-                "watch", "clock",
-                "scratches", "dent", "crack", "broken",
-                "utilities", "cable", "internet", "wifi",
-                "trip", "hawaii", "vacation", "travel"
-            };
-            
-            for (String seed : seeds) {
-                String lowerSeed = seed.toLowerCase();
-                boolean isGeneric = true;
-                
-                for (String specificItem : specificItems) {
-                    if (lowerSeed.contains(specificItem)) {
-                        if (!itemContext.contains(specificItem)) {
-                            isGeneric = false;
-                            break;
-                        }
-                    }
-                }
-                
-                if (isGeneric) {
-                    itemFiltered.add(seed);
-                }
-            }
-            
-            if (itemFiltered.size() < 50) {
-                for (String seed : seeds) {
-                    if (seed.length() < 80 && !seed.toLowerCase().matches(".*(chair|laptop|phone|car|apartment).*")) {
-                        itemFiltered.add(seed);
-                    }
-                }
-            }
-            
-            if (itemFiltered.isEmpty()) {
-                itemFiltered = seeds;
-            }
-        } else {
-            itemFiltered = seeds;
-        }
-        
-        Map<String, Double> scoreCache = new HashMap<>();
-        List<String> filtered = new ArrayList<>();
-        
-        for (String seed : itemFiltered) {
-            double relevance = calculateSeedRelevance(seed, intent, price, opponentMessage);
-            scoreCache.put(seed, relevance);
-            if (relevance > 0.3) {
-                filtered.add(seed);
+        for (String seed : seeds) {
+            if (calculateSeedRelevance(seed, intent, price, opponentMessage) > 0.5) {
+                itemsFiltered.add(seed);
             }
         }
-        
-        if (filtered.isEmpty()) {
-            return itemFiltered;
-        }
-        
-        filtered.sort((a, b) -> {
-            double scoreA = scoreCache.getOrDefault(a, 0.5);
-            double scoreB = scoreCache.getOrDefault(b, 0.5);
-            int comparison = Double.compare(scoreB, scoreA);
-            if (comparison == 0) {
-                return a.compareTo(b);
-            }
-            return comparison;
-        });
-        
-        return filtered;
+        return itemsFiltered;
+
     }
     
     private double calculateSeedRelevance(String seed, String intent, double price, String opponentMessage) {

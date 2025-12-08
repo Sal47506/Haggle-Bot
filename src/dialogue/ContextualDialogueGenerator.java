@@ -5,7 +5,7 @@ import models.NegotiationState;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class ContextualDialogueGenerator {
+public class ContextualDialogueGenerator implements DialogueGenerator {
     
     private Map<String, List<String>> utterancesByIntent;
     private Random random;
@@ -281,8 +281,7 @@ public class ContextualDialogueGenerator {
         
         return result.trim();
     }
-
-   // hopefully i dont have to use this lmao, only used to start the project up for running, ignore this
+    
     private String getFallbackDialogue(String intent, double price) {
         switch (intent) {
             case "OFFER":
@@ -309,6 +308,12 @@ public class ContextualDialogueGenerator {
     
     public List<String> getConversationHistory() {
         return new ArrayList<>(conversationHistory);
+    }
+    
+    @Override
+    public void setItemContext(String item) {
+        // ContextualDialogueGenerator doesn't use item context filtering
+        // TF-IDF handles context through semantic similarity
     }
 }
 

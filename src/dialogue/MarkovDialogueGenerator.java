@@ -349,7 +349,24 @@ public class MarkovDialogueGenerator implements DialogueGenerator {
             }
         }
         
+        result = enforceItemContext(result);
         return result.trim();
+    }
+    
+    /**
+     * Keep the generated utterance on-topic by swapping common item nouns
+     * with the provided item context. This helps avoid unrelated items
+     * (e.g., "phone", "car") leaking from training data.
+     */
+    private String enforceItemContext(String text) {
+        if (itemContext == null || itemContext.isEmpty()) {
+            return text;
+        }
+        
+        // Replace a wider set of common product nouns with the seller's item.
+        // Note: we replace longer phrases first via regex alternation order.
+        String pattern = "(?i)\\b(side table|phone|laptop|car|bike|bicycle|truck|tablet|computer|pc|monitor|camera|tv|television|vehicle|watch|table|desk|chair|couch|sofa|bed|fridge|refrigerator)\\b";
+        return text.replaceAll(pattern, java.util.regex.Matcher.quoteReplacement(itemContext));
     }
     
     private String extractContextFromHistory() {

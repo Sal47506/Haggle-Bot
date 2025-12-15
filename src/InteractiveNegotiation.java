@@ -1,4 +1,7 @@
 import agents.BuyerAgent;
+import dialogue.DialogueGenerator;
+import dialogue.MarkovDialogueGenerator;
+import dialogue.MarkovTransformerDialogueGenerator;
 import java.util.*;
 import java.io.*;
 import java.util.regex.Pattern;
@@ -18,30 +21,66 @@ public class InteractiveNegotiation {
             String datasetPath = "data/craigslist_bargains/train.json";
             
             System.out.print("Enter item name: ");
-            String itemName = reader.readLine().trim();
+            System.out.flush();
+            String itemName = reader.readLine();
+            if (itemName == null) {
+                System.err.println("\nError: No input received (stdin closed or EOF). Make sure you're running this interactively.");
+                System.err.println("If running from a script, ensure stdin is not redirected.");
+                return;
+            }
+            itemName = itemName.trim();
             
             System.out.print("Enter your asking price: $");
-            double askingPrice = Double.parseDouble(reader.readLine().trim());
+            String askingPriceInput = reader.readLine();
+            if (askingPriceInput == null) {
+                System.out.println("Error: No input received. Exiting.");
+                return;
+            }
+            double askingPrice = Double.parseDouble(askingPriceInput.trim());
             
             System.out.print("Enter buyer's reservation price (max they'll pay): $");
-            double buyerReservation = Double.parseDouble(reader.readLine().trim());
+            String resInput = reader.readLine();
+            if (resInput == null) {
+                System.out.println("Error: No input received. Exiting.");
+                return;
+            }
+            double buyerReservation = Double.parseDouble(resInput.trim());
             
             System.out.print("Enter buyer's target price (ideal price): $");
-            double buyerTarget = Double.parseDouble(reader.readLine().trim());
+            String targetInput = reader.readLine();
+            if (targetInput == null) {
+                System.out.println("Error: No input received. Exiting.");
+                return;
+            }
+            double buyerTarget = Double.parseDouble(targetInput.trim());
+
+            System.out.print("Use transformer reranker for buyer dialogue? (y/N): ");
+            String rerankInput = reader.readLine();
+            if (rerankInput == null) rerankInput = "n";
+            boolean useTransformerReranker = rerankInput.trim().toLowerCase().startsWith("y");
             
             System.out.println("\n=== Negotiation Started ===");
             System.out.println("Item: " + itemName);
             System.out.println("Your asking price: $" + String.format("%.2f", askingPrice));
             System.out.println("\nTip: Type 'quit' or 'exit' to end negotiation");
+            System.out.println("Disclaimer: Buyer responses are auto-generated and may contain artifacts or off-topic phrases. Deals are marked heuristically when price gaps narrow—treat them as approximations.");
             System.out.println("----------------------------------------\n");
             
-            BuyerAgent buyer = new BuyerAgent(datasetPath, buyerReservation, buyerTarget);
+            DialogueGenerator generator;
+            if (useTransformerReranker) {
+                generator = new MarkovTransformerDialogueGenerator(datasetPath, 3, true);
+            } else {
+                generator = new MarkovDialogueGenerator(datasetPath, 3);
+            }
+            
+            BuyerAgent buyer = new BuyerAgent(generator, buyerReservation, buyerTarget);
             buyer.setItemContext(itemName);
             
             System.out.println("Q-Learning enabled:");
             System.out.println("  Exploration rate: " + buyer.getEpsilon());
             System.out.println("  Agent will learn from this negotiation");
             System.out.println("  Item context: " + itemName);
+            System.out.println("  Transformer reranker: " + (useTransformerReranker ? "enabled" : "disabled (Markov only)"));
             System.out.println();
             
             String buyerMessage = buyer.makeInitialOffer();

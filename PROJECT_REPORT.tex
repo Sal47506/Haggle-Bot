@@ -1,4 +1,24 @@
 \documentclass[11pt,a4paper]{article}
+
+\usepackage{listings}
+\lstdefinelanguage{json}{
+    basicstyle=\ttfamily,
+    numbers=left,
+    numberstyle=\tiny, 
+    stepnumber=1,
+    numbersep=5pt,
+    showstringspaces=false,
+    breaklines=true,
+    frame=lines,
+    backgroundcolor=\color{white},
+    literate={"}{{\texttt{"}}}1
+             {,}{{\texttt{,}}}1
+             {:}{{\texttt{:}}}1
+             {[}{{\texttt{[}}}1
+             {]}{{\texttt{]}}}1
+             {\{}{{\texttt{\{}}}1
+             {\}}{{\texttt{\}}}}1
+}
 \usepackage[utf8]{inputenc}
 \usepackage[margin=1in]{geometry}
 \usepackage{graphicx}
@@ -37,8 +57,8 @@
 \lstset{style=javastyle}
 
 \title{HaggleBot: A Buyer Negotiation Agent using Q-Learning and Simple NLP}
-\author{Nuhin (Computing Languages Final Project)}
-\date{\today}
+\author{Salamun Nuhin}
+\date{12/08/25}
 
 \begin{document}
 
@@ -80,7 +100,7 @@ This project extensively explores multiple aspects of NLP:
 \subsection{Natural Language Generation}
 \begin{itemize}
     \item \textbf{N-gram Markov Models}: Generate dialogue by learning transition probabilities between word sequences from training data
-    \item \textbf{Placeholder Systems}: Dynamic replacement of \texttt{<PRICE>}, \texttt{<ITEM>}, and \texttt{<CONTEXT>} tokens to create contextually relevant responses
+    \item \textbf{Placeholder Systems}: Dynamic replacement of \texttt{<PRICE>}, \texttt{<ITEM>} and \texttt{<CONTEXT>} tokens to create contextually relevant responses
     \item \textbf{Seed Utterance Selection}: Template-based generation using real negotiation examples filtered by relevance scoring
 \end{itemize}
 
@@ -148,10 +168,12 @@ This class tracks the current state of negotiation:
 \section{Reinforcement Learning: Q-Learning}
 
 \subsection{What Q-learning is (in this project)}
-Q-learning is a reinforcement learning algorithm where an agent learns what to do by trying actions and receiving rewards. In my project, each round of negotiation is a ``step.'' The buyer is the agent, and the seller (me) is the environment. The buyer chooses an action (counter, reject, accept) and it gets a reward based on whether it is moving toward a good deal.
+Q-learning is a reinforcement learning algorithm where an agent learns what to do by trying actions and receiving rewards. In this project each round of negotiation is a ``step.'' The buyer is the agent and the seller is the environment. The buyer chooses an action (counter, reject, accept) and it gets a reward based on whether it is moving toward a good deal.
 
 
 \subsection{State Representation}
+
+The code cannot store a continuous state directly in a small Q-table, so it compresses the situation into a short string key. This is done by bucketing the round number, the price gap and the number of consecutive rejects. The result is a state representation that is simple, predictable and easy to debug when testing the agent.
 
 The agent discretizes continuous negotiation states into buckets:
 
@@ -177,6 +199,8 @@ The agent can choose from three actions:
 \end{enumerate}
 
 \subsection{Q-Learning Algorithm}
+
+The Q-table maps a state key to three values, one for each action (COUNTER, REJECT, ACCEPT). Each turn the agent chooses an action using epsilon-greedy selection. With probability \(\epsilon\) it explores by picking a random action. Otherwise it exploits by picking the action with the highest Q-value. After the next state is observed the Q-value is updated with the Bellman update shown below.
 
 The agent uses the standard Q-learning update rule:
 
@@ -207,6 +231,8 @@ private void updateQTable(String stateKey, int action,
 
 \subsection{Reward Function}
 
+The reward function is designed to push the buyer toward reasonable deals while discouraging bad acceptances. Accepting below the reservation price gets a positive reward that increases as the deal improves. Rejecting gets a small negative reward to avoid rejecting forever. Countering is penalized based on the remaining price gap so the agent is encouraged to close the gap over time.
+
 The reward function encourages favorable deals:
 
 \begin{lstlisting}[caption=Reward Calculation]
@@ -229,6 +255,8 @@ if (intent.equals("ACCEPT")) {
 \section{Natural Language Generation}
 
 \subsection{Markov Chain Dialogue Generation}
+
+The Markov generator builds an n-gram language model from buyer utterances in the dataset. For each intent category it learns a transition table from an \((n-1)\)-word context to the next word. During generation it starts from a seed utterance, then it repeatedly samples the next token from the transition list that matches the current context. Using \(n=3\) gives a trigram model, which is a good balance between coherence and variety for this project.
 
 The system builds n-gram Markov models from training data:
 
@@ -297,6 +325,8 @@ private String replacePlaceholders(String utterance,
 
 \subsection{Context Extraction}
 
+The context extraction step is a lightweight way to reuse seller wording without needing deep semantic parsing. The code looks at the last few seller messages, removes price-like substrings, tokenizes on whitespace, strips punctuation and filters out short or common stop words. The remaining words are joined into a short context string which can be inserted into generated responses through the \texttt{<CONTEXT>} placeholder. This helps the buyer mention the same topic the seller used, even when the Markov generator is sampling freely.
+
 The system extracts meaningful context from conversation history:
 
 \begin{lstlisting}[caption=Context Extraction from History]
@@ -355,11 +385,13 @@ The TF-IDF generator works like a retrieval method:
     \item It keeps candidates above a similarity threshold and randomly chooses one.
 \end{enumerate}
 
-\textbf{Important improvement I made after testing:} I noticed the TF-IDF buyer could bring up the wrong item (e.g., Blu-ray/stereo talk during a soda negotiation). To fix that, I added an \textbf{item grounding filter}: the query is augmented with the item name and candidate utterances that mention a different likely item are filtered out.
+\textbf{Important improvement from testing:} During testing it was common to see a good negotiation style match but a bad product match, like Blu-ray or stereo text in a soda negotiation. To reduce this, an item grounding filter was added. The query is augmented with the item name and candidate utterances that mention a different likely item are filtered out.
 
 \section{Regular Expressions and Text Processing}
 
 \subsection{Price Extraction}
+
+Price extraction is handled with a regular expression so the seller can type natural phrases like \texttt{\$50}, \texttt{50 bucks} or \texttt{50 dollars}. The pattern has two alternatives, one that matches dollar sign formats and one that matches number plus currency word formats. The code then checks which capture group matched and parses it into a double. This extracted price is used as the current seller price for the negotiation state.
 
 The system uses regex to extract prices from natural language:
 
@@ -595,6 +627,10 @@ The system displays:
 
 \subsection{Tactical Behavior Selection}
 
+Tactic selection is a small rule-based layer that sits on top of the Q-learning action choice. The Q-learning policy decides the intent (counter, reject or accept). The tactic then changes the style of the response. This was added because pure Q-learning on three actions does not capture tone, urgency or bluffing, but those are important parts of real negotiation dialogue.
+
+The \texttt{pickTactic} function uses two main signals: the round number and the gap between the seller price and the current offer. If the seller price is very far from the buyer offer then the agent is more likely to pick \texttt{HARD\_BALL} and use firm language. If the negotiation is later in the conversation then it shifts toward \texttt{SNEAKY} or \texttt{OPPORTUNISTIC} to encourage closing. Randomness is also used so the same situation does not always produce identical behavior which makes the agent feel less scripted.
+
 The agent dynamically selects negotiation tactics:
 
 \begin{lstlisting}[caption=Tactic Selection Logic]
@@ -791,7 +827,7 @@ Across 50 test negotiations:
 
 \textbf{Problem}: In early testing, the TF-IDF generator sometimes selected a candidate sentence that contained details from a different product category (for example: ``it won't play blurays'' when the item is a soda). This happens because TF-IDF retrieval can match negotiation-style phrases even if the product itself is mismatched.
 
-\textbf{Solution}: I added \textbf{item grounding} to the TF-IDF generator. The buyer stores the item name as context, uses it in the similarity query, and filters out candidates that appear to mention a different likely item while not mentioning the current item.
+\textbf{Solution}: Item grounding was added to the TF-IDF generator. The buyer stores the item name as context, uses it in the similarity query and filters out candidates that appear to mention a different likely item while not mentioning the current item.
 
 \textbf{Result}: The buyer stays more on-topic and produces fewer obviously wrong product references.
 
@@ -861,4 +897,3 @@ In a future version, I would:
 This project uses the Craigslist Bargains dataset (\href{https://huggingface.co/datasets/stanfordnlp/craigslist_bargains}{stanfordnlp/craigslist\_bargains}) and leverages open-source libraries including Gson for JSON parsing. Inspiration for the negotiation-dialogue idea was drawn from \textit{Deal or No Deal? End-to-End Learning for Negotiation Dialogues} \href{https://arxiv.org/pdf/1706.05125}{(Lewis et al., 2017)}.
 
 \end{document}
-

@@ -14,6 +14,21 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
     private NegotiationState currentState;
     private Map<String, Integer> vocab;
     private List<String> corpus;
+    private String itemContext;
+    private Set<String> itemContextTokens;
+    private Set<String> likelyItemWords;
+
+    // Minimal stopword list to avoid treating generic words as "items"
+    private static final Set<String> STOPWORDS = new HashSet<>(Arrays.asList(
+        "the","a","an","and","or","but","if","then","else","this","that","these","those",
+        "i","me","my","mine","you","your","yours","we","us","our","ours","they","them","their","theirs",
+        "it","its","is","are","was","were","be","been","being","to","of","in","on","at","for","with","from","as",
+        "have","has","had","do","does","did","can","could","will","would","should","might","may","must",
+        "not","no","yes","ok","okay","sure","thanks","thank","please",
+        "price","money","cash","deal","offer","offers","offering","buy","sell","selling","purchase",
+        "dollar","dollars","buck","bucks","usd",
+        "still","available","interested","question","questions","today","tomorrow","now"
+    ));
     
     public ContextualDialogueGenerator(String datasetPath) throws Exception {
         this.random = new Random();
@@ -21,6 +36,9 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
         this.conversationHistory = new ArrayList<>();
         this.vocab = new HashMap<>();
         this.corpus = new ArrayList<>();
+        this.itemContext = null;
+        this.itemContextTokens = new HashSet<>();
+        this.likelyItemWords = new HashSet<>();
         loadUtterances(datasetPath);
         buildVocab(datasetPath);
     }
@@ -90,6 +108,76 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
                 }
             }
         }
+
+        // Build a lightweight list of "likely item words" from common determiner patterns in the corpus.
+        // Example: "the stereo", "this couch", "your bike" -> stereo/couch/bike are likely item tokens.
+        buildLikelyItemWords();
+    }
+
+    private void buildLikelyItemWords() {
+        Map<String, Integer> counts = new HashMap<>();
+        for (String doc : corpus) {
+            if (doc == null) continue;
+            String[] toks = tokenize(doc);
+            for (int i = 0; i + 1 < toks.length; i++) {
+                String t = toks[i];
+                if (t == null) continue;
+                if (t.equals("the") || t.equals("this") || t.equals("that") || t.equals("your") || t.equals("my") || t.equals("a") || t.equals("an")) {
+                    String next = toks[i + 1];
+                    if (next == null || next.length() < 3) continue;
+                    if (STOPWORDS.contains(next)) continue;
+                    if (next.matches("\\d+")) continue;
+                    counts.put(next, counts.getOrDefault(next, 0) + 1);
+                }
+            }
+        }
+
+        // Keep the most common N candidates to avoid an unbounded set.
+        final int MAX_WORDS = 600;
+        List<Map.Entry<String, Integer>> entries = new ArrayList<>(counts.entrySet());
+        entries.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+        for (int i = 0; i < Math.min(MAX_WORDS, entries.size()); i++) {
+            likelyItemWords.add(entries.get(i).getKey());
+        }
+    }
+
+    private String[] tokenize(String text) {
+        if (text == null) return new String[0];
+        String cleaned = text.toLowerCase().replaceAll("[^a-z0-9]+", " ").trim();
+        if (cleaned.isEmpty()) return new String[0];
+        return cleaned.split("\\s+");
+    }
+
+    private boolean candidateMentionsContextItem(String candidateLower) {
+        if (itemContextTokens == null || itemContextTokens.isEmpty()) return false;
+        String[] toks = tokenize(candidateLower);
+        Set<String> tokSet = new HashSet<>(Arrays.asList(toks));
+        for (String ctx : itemContextTokens) {
+            if (tokSet.contains(ctx)) return true;
+        }
+        return false;
+    }
+
+    private boolean candidateMentionsOtherLikelyItem(String candidateLower) {
+        if (likelyItemWords == null || likelyItemWords.isEmpty()) return false;
+        String[] toks = tokenize(candidateLower);
+        for (String t : toks) {
+            if (t.length() < 3) continue;
+            if (likelyItemWords.contains(t)) return true;
+        }
+        return false;
+    }
+
+    private boolean shouldExcludeCandidateForItemMismatch(String candidate) {
+        if (itemContextTokens == null || itemContextTokens.isEmpty()) return false;
+        if (candidate == null || candidate.trim().isEmpty()) return false;
+        String lower = candidate.toLowerCase();
+
+        // If a candidate clearly mentions *some* likely item token but doesn't mention our context item,
+        // drop it to prevent "stereo" showing up in a "soda" negotiation, etc.
+        boolean mentionsContext = candidateMentionsContextItem(lower);
+        boolean mentionsSomeItem = candidateMentionsOtherLikelyItem(lower);
+        return mentionsSomeItem && !mentionsContext;
     }
 
     private double[] computeTFIDF(String sentence) {
@@ -163,12 +251,29 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
         List<String> filtered = new ArrayList<>();
         
         if (opponentMessage == null || opponentMessage.trim().isEmpty()) {
+            // No opponent text to match against; still avoid obvious item-mismatch candidates if we have an item context.
+            if (itemContextTokens != null && !itemContextTokens.isEmpty()) {
+                for (String candidate : candidates) {
+                    if (!shouldExcludeCandidateForItemMismatch(candidate)) {
+                        filtered.add(candidate);
+                    }
+                }
+                return filtered.isEmpty() ? candidates : filtered;
+            }
             return candidates;
         }
         
-        double[] opponentVec = computeTFIDF(opponentMessage);
+        // Anchor similarity on both the opponent message and the item context (when available)
+        String query = opponentMessage;
+        if (itemContext != null && !itemContext.trim().isEmpty()) {
+            query = query + " " + itemContext;
+        }
+        double[] opponentVec = computeTFIDF(query);
         
         for (String candidate : candidates) {
+            if (shouldExcludeCandidateForItemMismatch(candidate)) {
+                continue;
+            }
             double[] candidateVec = computeTFIDF(candidate);
             double similarity = cosine(candidateVec, opponentVec);
             
@@ -178,7 +283,15 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
         }
         
         if (filtered.isEmpty()) {
-            return candidates;
+            // If similarity filtering yields nothing, prefer "safe" candidates (no obvious other-item mentions)
+            // over falling back to the full pool (which is how off-topic items leak in).
+            List<String> safe = new ArrayList<>();
+            for (String candidate : candidates) {
+                if (!shouldExcludeCandidateForItemMismatch(candidate)) {
+                    safe.add(candidate);
+                }
+            }
+            return safe.isEmpty() ? candidates : safe;
         }
         
         return filtered;
@@ -312,8 +425,18 @@ public class ContextualDialogueGenerator implements DialogueGenerator {
     
     @Override
     public void setItemContext(String item) {
-        // ContextualDialogueGenerator doesn't use item context filtering
-        // TF-IDF handles context through semantic similarity
+        if (item == null) {
+            this.itemContext = null;
+            this.itemContextTokens = new HashSet<>();
+            return;
+        }
+        this.itemContext = item.trim().toLowerCase();
+        this.itemContextTokens = new HashSet<>();
+        for (String t : tokenize(this.itemContext)) {
+            if (t.length() < 2) continue;
+            if (STOPWORDS.contains(t)) continue;
+            this.itemContextTokens.add(t);
+        }
     }
 }
 

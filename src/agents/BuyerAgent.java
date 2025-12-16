@@ -29,6 +29,13 @@ public class BuyerAgent {
         DEFAULT
     }
     private Tactic currentTactic;
+    private boolean walkedAway = false;
+    private String walkAwayMessage = null;
+
+    // Walk-away tuning: not too early, not too late
+    private int minRoundsBeforeWalkAway = 7;
+    private int hardWalkAwayRound = 13;
+    private int maxConsecutiveRejectsBeforeWalkAway = 4;
 
     public BuyerAgent(String datasetPath, double reservationPrice, double targetPrice) throws Exception {
         this.dialogueGen = new MarkovDialogueGenerator(datasetPath, 3);
@@ -54,6 +61,14 @@ public class BuyerAgent {
     
     public void setItemContext(String itemName) {
         dialogueGen.setItemContext(itemName);
+    }
+
+    public boolean hasWalkedAway() {
+        return walkedAway;
+    }
+
+    public String getWalkAwayMessage() {
+        return walkAwayMessage;
     }
     
     private Tactic pickTactic(String intent, double sellerPrice) {
@@ -147,6 +162,15 @@ public class BuyerAgent {
     }
     
     public String respondToSeller(String sellerMessage, double sellerPrice) {
+        // If we've already walked away, keep returning the same termination message.
+        if (walkedAway) {
+            return walkAwayMessage != null ? walkAwayMessage : "I'm going to pass. Thanks anyway.";
+        }
+        // If a deal was already reached, keep replying with a consistent acceptance message.
+        if (state != null && state.isDealReached()) {
+            return generateTacticalResponse("ACCEPT", sellerPrice, sellerMessage, Tactic.OPPORTUNISTIC);
+        }
+
         String currentStateKey = getStateKey(sellerPrice);
         
         int action = chooseAction(currentStateKey);
@@ -186,8 +210,23 @@ public class BuyerAgent {
             action = 1;
         }
         
+        // First compute an offer based on the current (possibly forced) intent...
         double offerPrice = decidePrice(intent, sellerPrice, consecutiveRejects);
+
+        // ...then potentially override intent based on negotiation heuristics,
+        // and recompute the offer so ACCEPT actually matches the seller's price.
         intent = decideIntent(sellerPrice);
+        offerPrice = decidePrice(intent, sellerPrice, consecutiveRejects);
+
+        // Walk-away decision: after enough rounds/rejections, if seller is still above our reservation, end it.
+        int projectedRound = state.getRound() + 1;
+        if (sellerPrice > reservationPrice && (
+                (projectedRound >= minRoundsBeforeWalkAway && consecutiveRejects >= maxConsecutiveRejectsBeforeWalkAway) ||
+                projectedRound >= hardWalkAwayRound)) {
+            walkedAway = true;
+            walkAwayMessage = "I don't think we're going to agree. I'll pass. Thanks for your time.";
+            return walkAwayMessage;
+        }
         
         currentOffer = offerPrice;
         offerHistory.add(offerPrice);
@@ -201,6 +240,7 @@ public class BuyerAgent {
             offerHistory
         );
         state.setConsecutiveRejects(consecutiveRejects);
+        state.setDealReached("ACCEPT".equals(intent));
         
         String nextStateKey = getStateKey(sellerPrice);
         
@@ -219,6 +259,23 @@ public class BuyerAgent {
     }
     
     private String generateTacticalResponse(String intent, double price, String sellerMessage, Tactic tactic) {
+        // If the seller price is acceptable, always return a clear acceptance.
+        // This avoids confusing "ACCEPT" turns that contain unrelated seed text.
+        if ("ACCEPT".equals(intent)) {
+            String[] acceptResponses = {
+                "Yeah, I can do $" + String.format("%.2f", price) + ". Deal.",
+                "Okay deal — $" + String.format("%.2f", price) + " works for me.",
+                "I agree to $" + String.format("%.2f", price) + ".",
+                "Sounds good, I'll pay $" + String.format("%.2f", price) + ".",
+                "Deal! I'll take it for $" + String.format("%.2f", price) + "."
+            };
+            String response = acceptResponses[random.nextInt(acceptResponses.length)];
+            if (currentTactic == Tactic.OPPORTUNISTIC && !response.toLowerCase().contains("cash")) {
+                response = addTacticalModifier(response, "I can pay cash right now.");
+            }
+            return response;
+        }
+
         String baseResponse = dialogueGen.generate(intent, price, sellerMessage);
         
         if (consecutiveRejects >= 3) {
@@ -266,36 +323,19 @@ public class BuyerAgent {
         offerHistory.clear();
         offerHistory.add(currentOffer);
         
-        state = new NegotiationState(1, 0.0, reservationPrice, targetPrice, 0.0, offerHistory);
+        state = new NegotiationState(1, currentOffer, reservationPrice, targetPrice, 0.0, offerHistory);
         dialogueGen.updateContext(state, null);
         
         return dialogueGen.generate("OFFER", currentOffer);
     }
     
     private String decideIntent(double sellerPrice) {
-        if (sellerPrice <= reservationPrice) {
-            state.setDealReached(true);
-            return "ACCEPT";
-        }
-        
-        double priceGap = Math.abs(sellerPrice - currentOffer);
-        double relativegGap = priceGap / sellerPrice;
-        
-        if (state.getRound() > 7 && sellerPrice <= reservationPrice * 1.2) {
-            state.setDealReached(true);
-            return "ACCEPT";
-        }
-        
-        if (relativegGap < 0.15 && state.getRound() > 4) {
-            state.setDealReached(true);
+        // Never accept above reservation price (hard constraint).
+        if (sellerPrice > 0 && sellerPrice <= reservationPrice) {
             return "ACCEPT";
         }
         
         if (state.getRound() > 10) {
-            if (sellerPrice <= reservationPrice * 1.3) {
-                state.setDealReached(true);
-                return "ACCEPT";
-            }
             return "REJECT";
         }
         

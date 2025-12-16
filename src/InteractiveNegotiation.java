@@ -1,7 +1,7 @@
 import agents.BuyerAgent;
 import dialogue.DialogueGenerator;
+import dialogue.ContextualDialogueGenerator;
 import dialogue.MarkovDialogueGenerator;
-import dialogue.MarkovTransformerDialogueGenerator;
 import java.util.*;
 import java.io.*;
 import java.util.regex.Pattern;
@@ -12,6 +12,9 @@ public class InteractiveNegotiation {
     private static BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
     private static Pattern pricePattern = Pattern.compile("\\$\\s*(\\d+(?:\\.\\d{1,2})?)|" +
                                                           "(\\d+(?:\\.\\d{1,2})?)\\s*(?:dollars?|bucks?|usd)");
+    private static final String[] acceptKeywords = {
+        "deal", "accepted", "accept", "agreed", "sounds good", "works", "ok", "okay", "sure"
+    };
     
     public static void main(String[] args) {
         try {
@@ -53,11 +56,20 @@ public class InteractiveNegotiation {
                 return;
             }
             double buyerTarget = Double.parseDouble(targetInput.trim());
-
-            System.out.print("Use transformer reranker for buyer dialogue? (y/N): ");
-            String rerankInput = reader.readLine();
-            if (rerankInput == null) rerankInput = "n";
-            boolean useTransformerReranker = rerankInput.trim().toLowerCase().startsWith("y");
+            
+            System.out.println("\nChoose buyer dialogue generator:");
+            System.out.println("  1) Markov (fast, can be noisy)");
+            System.out.println("  2) Contextual TF-IDF (more on-topic, no transformers)");
+            System.out.print("Select (1/2) [default 1]: ");
+            String genInput = reader.readLine();
+            int genChoice = 1;
+            try {
+                if (genInput != null && !genInput.trim().isEmpty()) {
+                    genChoice = Integer.parseInt(genInput.trim());
+                }
+            } catch (NumberFormatException ignored) {
+                genChoice = 1;
+            }
             
             System.out.println("\n=== Negotiation Started ===");
             System.out.println("Item: " + itemName);
@@ -67,10 +79,13 @@ public class InteractiveNegotiation {
             System.out.println("----------------------------------------\n");
             
             DialogueGenerator generator;
-            if (useTransformerReranker) {
-                generator = new MarkovTransformerDialogueGenerator(datasetPath, 3, true);
+            String generatorName;
+            if (genChoice == 2) {
+                generator = new ContextualDialogueGenerator(datasetPath);
+                generatorName = "Contextual TF-IDF";
             } else {
                 generator = new MarkovDialogueGenerator(datasetPath, 3);
+                generatorName = "Markov";
             }
             
             BuyerAgent buyer = new BuyerAgent(generator, buyerReservation, buyerTarget);
@@ -80,7 +95,7 @@ public class InteractiveNegotiation {
             System.out.println("  Exploration rate: " + buyer.getEpsilon());
             System.out.println("  Agent will learn from this negotiation");
             System.out.println("  Item context: " + itemName);
-            System.out.println("  Transformer reranker: " + (useTransformerReranker ? "enabled" : "disabled (Markov only)"));
+            System.out.println("  Dialogue generator: " + generatorName);
             System.out.println();
             
             String buyerMessage = buyer.makeInitialOffer();
@@ -107,24 +122,23 @@ public class InteractiveNegotiation {
                 
                 double inferredPrice = inferPriceFromMessage(sellerMessage);
                 boolean isRejecting = isRejectingMessage(sellerMessage);
+                boolean wantsHigher = wantsHigherPrice(sellerMessage);
+                boolean isAccepting = isAcceptingMessage(sellerMessage);
                 
                 if (inferredPrice > 0) {
                     currentSellerPrice = inferredPrice;
                     System.out.println("  [Inferred price: $" + String.format("%.2f", currentSellerPrice) + "]");
-                } else if (!isRejecting) {
-                    System.out.print("  Your price: $");
-                    String priceInput = reader.readLine().trim();
-                    
-                    if (priceInput.toLowerCase().equals("quit") || priceInput.toLowerCase().equals("exit")) {
-                        System.out.println("\nNegotiation ended by seller.");
-                        break;
-                    }
-                    
-                    try {
-                        currentSellerPrice = Double.parseDouble(priceInput);
-                    } catch (NumberFormatException e) {
-                        System.out.println("  Invalid price, keeping previous: $" + String.format("%.2f", currentSellerPrice));
-                    }
+                } else if (isAccepting && buyer.getCurrentOffer() > 0) {
+                    // Seller typed "deal/ok/accepted" without a price: treat as accepting the buyer's current offer.
+                    currentSellerPrice = buyer.getCurrentOffer();
+                    System.out.println("  [Seller accepts buyer offer: $" + String.format("%.2f", currentSellerPrice) + "]");
+                    System.out.println("\n=== Deal Reached! ===");
+                    System.out.println("Agreed price: $" + String.format("%.2f", currentSellerPrice));
+                    break;
+                } else if (wantsHigher && !isRejecting) {
+                    System.out.println("  [Seller wants a higher price: keeping price $" + String.format("%.2f", currentSellerPrice) + "]");
+                } else if (isRejecting) {
+                    System.out.println("  [Keeping price: $" + String.format("%.2f", currentSellerPrice) + "]");
                 } else {
                     System.out.println("  [Keeping price: $" + String.format("%.2f", currentSellerPrice) + "]");
                 }
@@ -140,18 +154,23 @@ public class InteractiveNegotiation {
                 System.out.println("Round: " + buyer.getState().getRound() + 
                                  " | Price gap: $" + String.format("%.2f", priceGap) +
                                  " | Exploration: " + String.format("%.1f%%", buyer.getEpsilon() * 100));
+
+                if (buyer.hasWalkedAway()) {
+                    System.out.println("\n=== Negotiation Ended ===");
+                    System.out.println("Buyer walked away.");
+                    break;
+                }
+
+                if (buyer.getState().isDealReached()) {
+                    System.out.println("\n=== Deal Reached! ===");
+                    System.out.println("Agreed price: $" + String.format("%.2f", currentSellerPrice));
+                    break;
+                }
                 
                 if (buyer.getState().getOpponentLastOffer() <= buyer.getReservationPrice() && 
                     buyer.getState().getOpponentLastOffer() > 0) {
                     System.out.println("\n=== Deal Reached! ===");
                     System.out.println("Buyer accepts your price: $" + String.format("%.2f", currentSellerPrice));
-                    break;
-                }
-                
-                if (priceGap < 2.0) {
-                    System.out.println("\n=== Deal Reached! ===");
-                    double finalPrice = (buyer.getCurrentOffer() + currentSellerPrice) / 2.0;
-                    System.out.println("Agreed price: $" + String.format("%.2f", finalPrice));
                     break;
                 }
                 
@@ -222,6 +241,32 @@ public class InteractiveNegotiation {
             return true;
         }
         
+        return false;
+    }
+    
+    private static boolean wantsHigherPrice(String message) {
+        String lower = message.toLowerCase();
+        
+        String[] higherKeywords = {
+            "too little", "too small", "too low", "need more", 
+            "want more", "need higher", "want higher", "more money",
+            "increase", "raise", "go up", "bump up"
+        };
+        
+        for (String keyword : higherKeywords) {
+            if (lower.contains(keyword)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    private static boolean isAcceptingMessage(String message) {
+        String lower = message.toLowerCase();
+        for (String keyword : acceptKeywords) {
+            if (lower.contains(keyword)) return true;
+        }
         return false;
     }
 }

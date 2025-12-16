@@ -36,8 +36,8 @@
 
 \lstset{style=javastyle}
 
-\title{HaggleBot: AI-Powered Negotiation Agent with Reinforcement Learning and Natural Language Generation}
-\author{Your Name}
+\title{HaggleBot: A Buyer Negotiation Agent using Q-Learning and Simple NLP}
+\author{Nuhin (Computing Languages Final Project)}
 \date{\today}
 
 \begin{document}
@@ -45,7 +45,7 @@
 \maketitle
 
 \begin{abstract}
-This project implements an intelligent negotiation agent that combines reinforcement learning (Q-Learning) with advanced natural language generation techniques to simulate realistic buyer behavior in price negotiations. The system features a Markov Chain-based dialogue generator with optional transformer-based reranking using Hugging Face models, creating contextually appropriate responses during bargaining scenarios. The agent learns optimal negotiation strategies through interaction and employs tactical behaviors including hard-ball tactics, opportunistic acceptance, and deceptive bluffing.
+This project is a negotiation simulator where a human plays the seller and the program plays an AI buyer agent. The buyer uses a reinforcement learning method (Q-learning) to decide whether to counter, reject, accept or walk away and it generates natural language responses using two approaches: (1) an n-gram Markov chain dialogue generator and (2) a TF-IDF + cosine similarity contextual dialogue generator. The goal of the project was not to make a perfect negotiator but to combine course topics from Computing Languages (parsing, tokenization, Markov chains) with practical NLP ideas (n-grams, TF-IDF, cosine similarity and regex extraction) in a runnable Java app.
 \end{abstract}
 
 \tableofcontents
@@ -53,21 +53,29 @@ This project implements an intelligent negotiation agent that combines reinforce
 
 \section{Introduction}
 
-HaggleBot is an AI-powered negotiation agent designed to simulate realistic buyer behavior in price negotiation scenarios. The system integrates multiple AI techniques including:
+HaggleBot is an AI-powered barter agent designed to simulate a buyer in a simple bargaining scenario (like Craigslist or Facebook Marketplace). The program runs as a command-line application: the seller enters an item name and an asking price and the buyer agent responds each round with a message and a new offer price.
+
+The project has two main goals:
+\begin{itemize}
+    \item \textbf{Strategy}: Make the buyer's actions feel consistent with negotiation logic (raise offers over time, accept good deals or reject/walk away from the negotiation).
+    \item \textbf{Language}: Make the buyer produce human-like responses based on patterns learned from real negotiation data (which comes from the Craigslist Dataset).
+\end{itemize}
+
+To meet these goals, the system integrates multiple techniques:
 
 \begin{itemize}
     \item \textbf{Reinforcement Learning (Q-Learning)} for strategic decision-making
     \item \textbf{Markov Chain models} for natural language generation
-    \item \textbf{Transformer-based reranking} (optional) using Hugging Face embeddings
-    \item \textbf{State-based tactical selection} for varied negotiation behaviors
-    \item \textbf{Context-aware dialogue} that adapts to conversation history
+    \item \textbf{TF-IDF similarity} for context-based response selection
+    \item \textbf{State-based tactical selection} for varied negotiation behaviors (hard-ball, opportunistic, sneaky)
+    \item \textbf{Regex parsing} for extracting prices from free-form seller messages
 \end{itemize}
 
-The agent engages in interactive negotiations where a human seller proposes prices and the AI buyer responds with counteroffers, rejections, or acceptances based on learned strategies and linguistic patterns from real negotiation data.
+The buyer agent engages in interactive negotiations where a human seller proposes prices and it responds with counteroffers, rejections, acceptances or a walk-away message based on learned strategies and linguistic patterns from training data.
 
 \section{Language and NLP Aspects}
 
-This project extensively explores multiple aspects of natural language processing:
+This project extensively explores multiple aspects of NLP:
 
 \subsection{Natural Language Generation}
 \begin{itemize}
@@ -85,54 +93,35 @@ This project extensively explores multiple aspects of natural language processin
 
 \subsection{Semantic Similarity}
 \begin{itemize}
-    \item \textbf{TF-IDF Vectorization}: Computing term importance for contextual filtering
-    \item \textbf{Cosine Similarity}: Matching candidate responses to opponent messages
-    \item \textbf{Transformer Embeddings}: Using sentence-transformers for semantic reranking (optional)
+    \item \textbf{TF-IDF Vectorization}: computing which words are important for a message compared to the overall dataset
+    \item \textbf{Cosine Similarity}: comparing two TF-IDF vectors to estimate semantic similarity
 \end{itemize}
 
 \section{System Architecture}
 
 \subsection{Core Components}
 
-The system consists of several interconnected modules:
+The system architecture for this projectconsists of several interconnected modules:
 
 \begin{figure}[H]
 \centering
-\begin{verbatim}
-┌─────────────────────────────────────────────┐
-│        InteractiveNegotiation               │
-│         (Main Application)                  │
-└────────────────┬────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────┐
-│           BuyerAgent                        │
-│  ┌──────────────┐  ┌─────────────────────┐ │
-│  │  Q-Learning  │  │ Dialogue Generation │ │
-│  │  Strategy    │  │  Intent Selection   │ │
-│  └──────────────┘  └─────────────────────┘ │
-└────────────────┬────────────────────────────┘
-                 │
-        ┌────────┴────────┐
-        ▼                 ▼
-┌──────────────┐  ┌──────────────────────┐
-│   Markov     │  │  MarkovTransformer   │
-│  Generator   │  │  Generator (HF)      │
-└──────────────┘  └──────────────────────┘
-\end{verbatim}
-\caption{System Architecture Overview}
+\includegraphics[width=0.92\linewidth]{\detokenize{images/System architecture.png}}
+\caption{System architecture overview. The main loop calls the BuyerAgent each round; the BuyerAgent uses Q-learning for action selection and a dialogue generator for text (either Markov or TF-IDF based on the user's choice).}
+\label{fig:architecture}
 \end{figure}
 
 \subsection{Key Classes}
 
 \subsubsection{BuyerAgent}
-The central agent class that orchestrates negotiation behavior. It maintains:
+This is the main agent class that orchestrates negotiation behavior. It maintains:
 \begin{itemize}
     \item Q-table for state-action value estimates
     \item Negotiation state (round, prices, gaps)
     \item Offer history and consecutive reject counter
     \item Dialogue generator instance
 \end{itemize}
+
+\textbf{Walk-away behavior:} In addition to counter, reject and accept, the buyer can also end the negotiation by walking away if it thinks an agreement is unlikely. When this happens, the program prints a clear walk-away message so the seller knows the negotiation ended. The current walk-away message is: \texttt{I don't think we're going to agree. I'll pass. Thanks for your time.}
 
 \subsubsection{MarkovDialogueGenerator}
 Generates natural language responses using n-gram Markov models:
@@ -143,17 +132,11 @@ Generates natural language responses using n-gram Markov models:
     \item Enforces item consistency by replacing off-topic nouns
 \end{itemize}
 
-\subsubsection{MarkovTransformerDialogueGenerator}
-Enhances Markov generation with transformer-based reranking:
-\begin{itemize}
-    \item Generates multiple Markov samples
-    \item Uses Hugging Face sentence-transformers for semantic embeddings
-    \item Reranks candidates by cosine similarity to opponent message
-    \item Falls back to plain Markov if transformer unavailable
-\end{itemize}
+\subsubsection{ContextualDialogueGenerator (TF-IDF)}
+This one selects responses by matching the seller's last message to candidate buyer utterances using TF-IDF vectors and cosine similarity. I also added item grounding so the generator is less likely to mention the wrong product (for example talking about a ``stereo'' when the item is ``soda'').
 
 \subsubsection{NegotiationState}
-Tracks the current state of negotiation:
+This class tracks the current state of negotiation:
 \begin{itemize}
     \item Current round number
     \item Buyer's last offer and reservation price
@@ -163,6 +146,10 @@ Tracks the current state of negotiation:
 \end{itemize}
 
 \section{Reinforcement Learning: Q-Learning}
+
+\subsection{What Q-learning is (in this project)}
+Q-learning is a reinforcement learning algorithm where an agent learns what to do by trying actions and receiving rewards. In my project, each round of negotiation is a ``step.'' The buyer is the agent, and the seller (me) is the environment. The buyer chooses an action (counter, reject, accept) and it gets a reward based on whether it is moving toward a good deal.
+
 
 \subsection{State Representation}
 
@@ -349,42 +336,26 @@ private String extractContextFromHistory() {
 }
 \end{lstlisting}
 
-\subsection{Transformer-Based Reranking}
+\subsection{TF-IDF Contextual Dialogue Generation}
 
-The optional transformer reranker improves response quality:
+\subsubsection{What TF-IDF is (in this project)}
+The basic idea behind this approach is:
+\begin{itemize}
+    \item \textbf{Term Frequency (TF)}: words that appear more in a message matter more for that message.
+    \item \textbf{Inverse Document Frequency (IDF)}: words that appear in \emph{every} message (like ``the'' or ``okay'') are not very informative, so they should matter less.
+\end{itemize}
+So TF-IDF assigns higher weights to words that are important in the current sentence but not too common across the dataset. Once we convert messages into vectors of TF-IDF weights, we can compare two messages using cosine similarity.
 
-\begin{lstlisting}[caption=Transformer Reranking]
-public String generate(String intent, double price, 
-                      String opponentMessage) {
-    if (!useTransformer || opponentMessage == null) {
-        return markov.generate(intent, price, opponentMessage);
-    }
-    
-    // Generate multiple candidates
-    List<String> candidates = sampleCandidates(
-        intent, price, opponentMessage, 5);
-    
-    // Embed opponent message
-    float[] opponentVec = embeddingPredictor.predict(
-        opponentMessage);
-    
-    // Find best match by cosine similarity
-    String best = candidates.get(0);
-    double bestScore = -1.0;
-    
-    for (String candidate : candidates) {
-        float[] candidateVec = embeddingPredictor.predict(
-            candidate);
-        double score = cosine(candidateVec, opponentVec);
-        if (score > bestScore) {
-            bestScore = score;
-            best = candidate;
-        }
-    }
-    
-    return best;
-}
-\end{lstlisting}
+\subsubsection{How it is used}
+The TF-IDF generator works like a retrieval method:
+\begin{enumerate}
+    \item It collects candidate buyer utterances from the dataset grouped by intent (OFFER/COUNTER/REJECT/ACCEPT).
+    \item It converts the seller's last message into a TF-IDF vector.
+    \item It converts each candidate utterance into a TF-IDF vector and computes cosine similarity.
+    \item It keeps candidates above a similarity threshold and randomly chooses one.
+\end{enumerate}
+
+\textbf{Important improvement I made after testing:} I noticed the TF-IDF buyer could bring up the wrong item (e.g., Blu-ray/stereo talk during a soda negotiation). To fix that, I added an \textbf{item grounding filter}: the query is augmented with the item name and candidate utterances that mention a different likely item are filtered out.
 
 \section{Regular Expressions and Text Processing}
 
@@ -441,7 +412,7 @@ private String enforceItemContext(String text) {
 
 \subsection{Craigslist Bargains Dataset}
 
-The system trains on the Craigslist Bargains dataset, which contains real negotiation dialogues from online marketplace interactions.
+The system trains on the Craigslist Bargains dataset, which contains real negotiation dialogues from online marketplace interactions. The dataset source used is the Hugging Face dataset card: \href{https://huggingface.co/datasets/stanfordnlp/craigslist_bargains}{stanfordnlp/craigslist\_bargains}.
 
 \textbf{Dataset Statistics:}
 \begin{itemize}
@@ -537,39 +508,6 @@ public List<NegotiationExample> parseBuyerExamples(
 \textbf{Version}: 2.10.1 \\
 \textbf{Purpose}: JSON parsing for the Craigslist Bargains dataset
 
-\begin{lstlisting}[language=XML,caption=Gson Maven Dependency]
-<dependency>
-    <groupId>com.google.code.gson</groupId>
-    <artifactId>gson</artifactId>
-    <version>2.10.1</version>
-</dependency>
-\end{lstlisting}
-
-\subsubsection{Deep Java Library (DJL)}
-\textbf{Version}: 0.29.0 \\
-\textbf{Purpose}: Deep learning framework for loading Hugging Face models
-
-\textbf{DJL Components:}
-\begin{itemize}
-    \item \texttt{ai.djl:api} - Core DJL API
-    \item \texttt{ai.djl:model-zoo} - Pre-trained model repository
-    \item \texttt{ai.djl.pytorch:pytorch-engine} - PyTorch inference engine
-    \item \texttt{ai.djl.huggingface:tokenizers} - HuggingFace tokenizer support
-\end{itemize}
-
-\begin{lstlisting}[language=XML,caption=DJL Maven Dependencies]
-<dependency>
-    <groupId>ai.djl</groupId>
-    <artifactId>api</artifactId>
-    <version>0.29.0</version>
-</dependency>
-<dependency>
-    <groupId>ai.djl.pytorch</groupId>
-    <artifactId>pytorch-engine</artifactId>
-    <version>0.29.0</version>
-</dependency>
-\end{lstlisting}
-
 \subsubsection{SLF4J}
 \textbf{Version}: 2.0.9 \\
 \textbf{Purpose}: Logging framework for debugging and monitoring
@@ -577,7 +515,7 @@ public List<NegotiationExample> parseBuyerExamples(
 \subsection{Build Tools}
 
 \subsubsection{Maven}
-Used for dependency management and project building via \texttt{pom.xml}.
+Maven is included for dependency management and building via \texttt{pom.xml}. The project can also be compiled directly with \texttt{javac} using the provided scripts and commands.
 
 \subsubsection{PowerShell Script}
 Custom compilation script (\texttt{run\_interactive.ps1}) that:
@@ -587,20 +525,12 @@ Custom compilation script (\texttt{run\_interactive.ps1}) that:
     \item Runs the interactive negotiation with proper classpath
 \end{itemize}
 
-\subsection{Transformer Model}
-
-\textbf{Model}: \texttt{sentence-transformers/all-MiniLM-L6-v2} \\
-\textbf{Source}: Hugging Face Model Hub \\
-\textbf{Purpose}: Semantic embedding for response reranking \\
-\textbf{Dimensions}: 384-dimensional embeddings \\
-\textbf{Download}: Automatic via DJL at runtime (when reranker enabled)
-
 \section{How to Run the Project}
 
 \subsection{Prerequisites}
 \begin{itemize}
     \item Java 8 or higher
-    \item Maven 3.6+ (optional, for dependency management)
+    \item Maven 3.6+ (optional)
     \item PowerShell (Windows) or Bash (Linux/Mac)
     \item Dataset: \texttt{data/craigslist\_bargains/train.json}
 \end{itemize}
@@ -623,15 +553,18 @@ cd C:\path\to\barter-enginer
 # Navigate to project directory
 cd /path/to/barter-enginer
 
+# Download Gson (only if gson-2.10.1.jar is not already present)
+curl -L -o gson-2.10.1.jar "https://repo1.maven.org/maven2/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar"
+
 # Compile
-javac -cp ".:gson-2.10.1.jar:lib/*" -d . \
+mkdir -p target/classes
+javac -cp "target/classes:gson-2.10.1.jar" -d target/classes \
     src/data/*.java src/models/*.java \
     src/dialogue/*.java src/agents/*.java \
     src/InteractiveNegotiation.java
 
 # Run
-java -cp ".:gson-2.10.1.jar:lib/*" \
-    InteractiveNegotiation
+java -cp "target/classes:gson-2.10.1.jar" InteractiveNegotiation
 \end{lstlisting}
 
 \subsection{Interactive Negotiation Flow}
@@ -643,41 +576,8 @@ When you run the program, it prompts for:
     \item \textbf{Asking price}: Your initial seller price
     \item \textbf{Buyer's reservation price}: Maximum the buyer will pay
     \item \textbf{Buyer's target price}: Ideal price the buyer wants
-    \item \textbf{Transformer reranker}: Whether to use HF embeddings (y/n)
+    \item \textbf{Dialogue generator choice}: Markov (1) or TF-IDF contextual (2)
 \end{enumerate}
-
-\textbf{Example Session:}
-
-\begin{lstlisting}[basicstyle=\ttfamily\small]
-=== Interactive Negotiation ===
-
-Enter item name: laptop
-Enter your asking price: $500
-Enter buyer's reservation price: $400
-Enter buyer's target price: $300
-Use transformer reranker? (y/N): n
-
-=== Negotiation Started ===
-Item: laptop
-Your asking price: $500.00
-
-Buyer: I'm interested in laptop. I can offer $300.00.
-Buyer's offer: $300.00
-
-You (Seller): That's too low for me
-  [Keeping price: $500.00]
-
-Buyer: I can go up to $320.00. That's my budget.
-Buyer's offer: $320.00
-Round: 2 | Price gap: $180.00 | Exploration: 20.0%
-
-You (Seller): How about $450?
-  [Inferred price: $450.00]
-
-Buyer: I can do $350.00 final offer.
-Buyer's offer: $350.00
-Round: 3 | Price gap: $100.00 | Exploration: 20.0%
-\end{lstlisting}
 
 \subsection{Output and Monitoring}
 
@@ -827,6 +727,36 @@ private double calculateSeedRelevance(String seed,
 
 \section{Experimental Results and Observations}
 
+\subsection{Conversation Output Examples}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{\detokenize{images/Markov pt. 1.png}}
+\caption{Example conversation output using the Markov dialogue generator (Part 1).}
+\label{fig:markov_output_1}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{\detokenize{images/Markov pt. 2.png}}
+\caption{Example conversation output using the Markov dialogue generator (Part 2).}
+\label{fig:markov_output_2}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{\detokenize{images/Markov Pt. 3.png}}
+\caption{Example conversation output using the Markov dialogue generator (Part 3).}
+\label{fig:markov_output_3}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{images/TF-IDF.png}
+\caption{Example conversation output using the TF-IDF contextual dialogue generator.}
+\label{fig:tfidf_output}
+\end{figure}
+
 \subsection{Q-Learning Performance}
 
 After multiple negotiation sessions, the agent demonstrates learning:
@@ -845,13 +775,6 @@ After multiple negotiation sessions, the agent demonstrates learning:
     \item \textbf{Mitigation}: Item context enforcement reduces off-topic responses by ~70\%
 \end{itemize}
 
-\subsubsection{Transformer Reranking}
-\begin{itemize}
-    \item \textbf{Pros}: Better semantic coherence, more contextually relevant
-    \item \textbf{Cons}: Slower (5x generation overhead), requires model download
-    \item \textbf{Improvement}: Reduces incoherent responses by ~40\% in user tests
-\end{itemize}
-
 \subsection{Negotiation Outcomes}
 
 Across 50 test negotiations:
@@ -866,16 +789,11 @@ Across 50 test negotiations:
 
 \subsection{Challenge 1: Off-Topic Dialogue}
 
-\textbf{Problem}: Markov generator sometimes produced responses mentioning unrelated items (e.g., "phone" when negotiating for "soda").
+\textbf{Problem}: In early testing, the TF-IDF generator sometimes selected a candidate sentence that contained details from a different product category (for example: ``it won't play blurays'' when the item is a soda). This happens because TF-IDF retrieval can match negotiation-style phrases even if the product itself is mismatched.
 
-\textbf{Solution}: Implemented \texttt{enforceItemContext()} which replaces common product nouns with the actual item name using regex:
+\textbf{Solution}: I added \textbf{item grounding} to the TF-IDF generator. The buyer stores the item name as context, uses it in the similarity query, and filters out candidates that appear to mention a different likely item while not mentioning the current item.
 
-\begin{lstlisting}
-String pattern = "(?i)\\b(phone|laptop|car|...)\\b";
-return text.replaceAll(pattern, itemContext);
-\end{lstlisting}
-
-\textbf{Result}: Reduced off-topic mentions by 70\%.
+\textbf{Result}: The buyer stays more on-topic and produces fewer obviously wrong product references.
 
 \subsection{Challenge 2: Price Gap Convergence}
 
@@ -885,15 +803,38 @@ return text.replaceAll(pattern, itemContext);
 
 \textbf{Result}: Improved convergence rate from 65\% to 82\%.
 
-\subsection{Challenge 3: Transformer Model Loading}
+\subsection{Challenge 3 (Unresolved): Deploying a Transformer Model}
 
-\textbf{Problem}: Sentence-transformer models failed to download due to network/dependency issues.
+\textbf{What I tried}: Originally, the project plan included adding a transformer model (for example, a sentence embedding model) to improve semantic understanding and make the dialogue more context-aware than Markov/TF-IDF.
 
-\textbf{Solution}: Implemented graceful fallback to Markov-only mode with clear warning messages. DJL downloads models at runtime automatically when available.
+\textbf{What went wrong}: In practice, deploying a transformer model inside this project was difficult. The main issues were:
+\begin{itemize}
+    \item Model download and runtime dependencies are heavy (large files, extra engine dependencies).
+    \item Environment differences caused failures (network restrictions, missing native libraries, engine compatibility).
+    \item Even when it runs, the latency is much higher than Markov/TF-IDF, which hurts the interactive experience.
+\end{itemize}
 
-\textbf{Result}: System works offline with Markov, seamlessly upgrades when online.
+\textbf{Status}: This part is not fully solved in the final version submitted. The final system focuses on a reliable Markov + TF-IDF approach and keeps transformer deployment as future work.
 
-\section{Future Enhancements}
+\section{Limitations and Future Work}
+
+\subsection{Current Downfalls (What is not perfect)}
+Even after improvements, the system is still not perfect. The biggest limitations I noticed are:
+\begin{itemize}
+    \item \textbf{Context awareness is shallow}: Markov generation can produce fluent text but it does not truly ``understand'' the conversation. TF-IDF retrieval is better at matching keywords but can still miss the real meaning.
+    \item \textbf{Domain mismatch artifacts}: Some dataset lines include product-specific details (like Blu-ray). Even with filtering, this can leak through occasionally.
+    \item \textbf{Strategy is still heuristic-heavy}: Q-learning is used, but some negotiation behavior is controlled by hand-made rules (like tactical modifiers and walk-away conditions).
+    \item \textbf{Simple deal logic}: The program assumes deals happen when the buyer accepts. In reality, a negotiation might include confirmation steps and external constraints.
+\end{itemize}
+
+\subsection{How I would address this in the future}
+In a future version, I would:
+\begin{enumerate}
+    \item Add a reliable transformer-based component for embeddings or response generation (with careful packaging and performance choices).
+    \item Improve item grounding by explicitly storing item attributes (category, condition) rather than relying on token matching.
+    \item Add better evaluation: run many scripted negotiations and compare success rate and language quality more systematically.
+    \item Consider Deep Q-learning or better state features if the project scope allowed it.
+\end{enumerate}
 
 \subsection{Planned Improvements}
 
@@ -915,25 +856,9 @@ return text.replaceAll(pattern, itemContext);
     \item \textbf{Game AI}: Realistic NPC merchants in video games
 \end{itemize}
 
-\section{Conclusion}
-
-This project successfully demonstrates the integration of reinforcement learning with natural language generation for autonomous negotiation. The system combines Q-learning for strategic decision-making with Markov Chain models for natural dialogue, achieving realistic buyer behavior in interactive price negotiations.
-
-Key accomplishments include:
-\begin{itemize}
-    \item Functional Q-learning agent that learns negotiation strategies
-    \item Markov-based dialogue generator with context-aware responses
-    \item Optional transformer reranking for improved semantic coherence
-    \item Tactical behavior selection (hard-ball, opportunistic, sneaky)
-    \item Real-time price extraction and intent classification via regex
-    \item 82\% success rate in reaching deals within constraints
-\end{itemize}
-
-The project explores multiple NLP aspects including text generation, semantic similarity, regex-based extraction, and transformer embeddings, while demonstrating practical applications of reinforcement learning in language-based environments.
-
 \section*{Acknowledgments}
 
-This project uses the Craigslist Bargains dataset and leverages several open-source libraries including Gson for JSON parsing and Deep Java Library (DJL) for deep learning integration.
+This project uses the Craigslist Bargains dataset (\href{https://huggingface.co/datasets/stanfordnlp/craigslist_bargains}{stanfordnlp/craigslist\_bargains}) and leverages open-source libraries including Gson for JSON parsing. Inspiration for the negotiation-dialogue idea was drawn from \textit{Deal or No Deal? End-to-End Learning for Negotiation Dialogues} \href{https://arxiv.org/pdf/1706.05125}{(Lewis et al., 2017)}.
 
 \end{document}
 
